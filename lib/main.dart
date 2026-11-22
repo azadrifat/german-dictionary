@@ -65,6 +65,7 @@ class _BootState extends State<Boot> {
   double? _progress;
   String _message = '';
   String _error = '';
+  bool _update = false; // true when an older dictionary is installed
 
   @override
   void initState() {
@@ -77,11 +78,38 @@ class _BootState extends State<Boot> {
     try {
       await store.init();
       if (await store.hasDb()) {
-        await store.openDb();
-        if (mounted) setState(() => _state = 'ready');
+        if (store.dataVersion >= kDataVersion) {
+          await store.openDb();
+          if (mounted) setState(() => _state = 'ready');
+        } else if (mounted) {
+          setState(() {
+            _update = true;
+            _state = 'needs';
+          });
+        }
       } else {
-        if (mounted) setState(() => _state = 'needs');
+        if (mounted) {
+          setState(() {
+            _update = false;
+            _state = 'needs';
+          });
+        }
       }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _state = 'error';
+          _error = '$e';
+        });
+      }
+    }
+  }
+
+  /// "Not now": keep using the older dictionary.
+  Future<void> _skip() async {
+    try {
+      await store.openDb();
+      if (mounted) setState(() => _state = 'ready');
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -121,7 +149,7 @@ class _BootState extends State<Boot> {
 
   @override
   Widget build(BuildContext context) {
-    if (_state == 'ready') return const HomeScreen();
+    if (_state == 'ready') return const HomeShell();
 
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
@@ -144,8 +172,12 @@ class _BootState extends State<Boot> {
             Text(kAppName, style: theme.textTheme.headlineLarge),
             const SizedBox(height: 12),
             Text(
-              'The dictionary data has to be downloaded once: about 30 MB to '
-              'download, about 110 MB on your phone. Please use Wi-Fi.',
+              _update
+                  ? 'A new version of the dictionary is ready, with more '
+                      'examples, expressions and related words '
+                      '(roughly 35 MB). Please use Wi-Fi.'
+                  : 'The dictionary data has to be downloaded once '
+                      '(roughly 35 MB). Please use Wi-Fi.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyLarge
                   ?.copyWith(color: scheme.onSurfaceVariant),
@@ -154,8 +186,12 @@ class _BootState extends State<Boot> {
             FilledButton.icon(
               onPressed: _download,
               icon: const Icon(Icons.download_rounded),
-              label: const Text('Download'),
+              label: Text(_update ? 'Download update' : 'Download'),
             ),
+            if (_update) ...[
+              const SizedBox(height: 8),
+              TextButton(onPressed: _skip, child: const Text('Not now')),
+            ],
           ],
         );
         break;

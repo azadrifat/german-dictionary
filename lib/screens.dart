@@ -43,6 +43,15 @@ String posLabel(String pos) {
   }
 }
 
+List<String> stringList(Object? v) =>
+    v is List ? v.map((s) => '$s').toList() : <String>[];
+
+List<List<String>> pairList(Object? v) => v is List
+    ? v
+        .map((x) => x is List ? x.map((s) => '$s').toList() : <String>['$x'])
+        .toList()
+    : <List<String>>[];
+
 dynamic decodeJson(Object? v) {
   if (v is String && v.isNotEmpty) {
     try {
@@ -200,6 +209,43 @@ class HitTile extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------- home
+class HomeShell extends StatefulWidget {
+  const HomeShell({super.key});
+
+  @override
+  State<HomeShell> createState() => _HomeShellState();
+}
+
+class _HomeShellState extends State<HomeShell> {
+  int _index = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: IndexedStack(
+        index: _index,
+        children: const [HomeScreen(), FavoritesPage(), SettingsPage()],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _index,
+        onDestinationSelected: (i) => setState(() => _index = i),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.search), label: 'Search'),
+          NavigationDestination(
+            icon: Icon(Icons.star_border),
+            selectedIcon: Icon(Icons.star),
+            label: 'Favorites',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.tune),
+            label: 'Settings',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -243,22 +289,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text(kAppName),
-        actions: [
-          IconButton(
-            tooltip: 'Favorites',
-            icon: const Icon(Icons.star_border),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const FavoritesPage()),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Settings',
-            icon: const Icon(Icons.tune),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
-            ),
-          ),
-        ],
       ),
       body: Column(
         children: [
@@ -424,7 +454,7 @@ class SettingsPage extends StatelessWidget {
             title: Text('About'),
             subtitle: Text(
               'Offline German-English dictionary. No ads, no tracking.\n'
-              'Version 0.2',
+              'Version 0.3',
             ),
           ),
           ListTile(
@@ -432,7 +462,8 @@ class SettingsPage extends StatelessWidget {
             title: Text('Data'),
             subtitle: Text(
               'Dictionary data: Wiktionary contributors, extracted by '
-              'kaikki.org (licence CC BY-SA 4.0). Audio recordings: '
+              'kaikki.org (licence CC BY-SA 4.0). Extra example sentences: '
+              'Tatoeba contributors (CC BY 2.0 FR). Audio recordings: '
               'Wikimedia Commons.',
             ),
           ),
@@ -495,6 +526,7 @@ class _WordView extends StatefulWidget {
 class _WordViewState extends State<_WordView> {
   final ScrollController _scroll = ScrollController();
   bool _showTitle = false;
+  bool _allExpr = false;
 
   static const Map<String, String> _classNames = {
     'weak': 'schwach',
@@ -567,6 +599,16 @@ class _WordViewState extends State<_WordView> {
     final grammar = decodeJson(e['grammar']);
     final senses = (decodeJson(e['senses']) as List?) ?? <dynamic>[];
     final forms = decodeJson(e['forms']);
+    final scheme = theme.colorScheme;
+    final extrasRaw = decodeJson(e['extras']);
+    final extras = extrasRaw is Map
+        ? extrasRaw.cast<String, dynamic>()
+        : <String, dynamic>{};
+    final expr = pairList(extras['expr']);
+    final wordSyn = stringList(extras['syn']);
+    final wordAnt = stringList(extras['ant']);
+    final family = stringList(extras['fam']);
+    final moreExamples = pairList(decodeJson(e['ex_extra']));
 
     // small grey line above the word: "verb · haben · schwach"
     final caption = <String>[posLabel(pos)];
@@ -644,6 +686,43 @@ class _WordViewState extends State<_WordView> {
           const SectionLabel('Meanings'),
           for (var i = 0; i < senses.length; i++)
             _SenseView(index: i + 1, sense: senses[i] as Map<String, dynamic>),
+          if (expr.isNotEmpty) ...[
+            const SectionLabel('Expressions'),
+            for (final x in (_allExpr ? expr : expr.take(5).toList()))
+              _ExpressionTile(phrase: x[0], gloss: x.length > 1 ? x[1] : ''),
+            if (!_allExpr && expr.length > 5)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: () => setState(() => _allExpr = true),
+                  child: Text('Show all ${expr.length}'),
+                ),
+              ),
+          ],
+          if (moreExamples.isNotEmpty) ...[
+            const SectionLabel('More examples'),
+            for (final x in moreExamples)
+              _ExampleBlock(de: x[0], en: x.length > 1 ? x[1] : ''),
+          ],
+          if (wordSyn.isNotEmpty || wordAnt.isNotEmpty) ...[
+            const SectionLabel('Similar and opposite'),
+            if (wordSyn.isNotEmpty)
+              _RelatedRow(
+                icon: Icons.drag_handle,
+                tooltip: 'Similar',
+                words: wordSyn,
+                background: scheme.secondaryContainer,
+                foreground: scheme.onSecondaryContainer,
+              ),
+            if (wordAnt.isNotEmpty)
+              _RelatedRow(
+                icon: Icons.compare_arrows,
+                tooltip: 'Opposite',
+                words: wordAnt,
+                background: scheme.tertiaryContainer,
+                foreground: scheme.onTertiaryContainer,
+              ),
+          ],
           if (forms is Map && pos == 'verb') ...[
             const SectionLabel('Conjugation'),
             ConjugationChart(forms: forms.cast<String, dynamic>()),
@@ -651,6 +730,20 @@ class _WordViewState extends State<_WordView> {
           if (forms is Map && pos == 'noun') ...[
             const SectionLabel('Declension'),
             DeclensionSection(forms: forms.cast<String, dynamic>()),
+          ],
+          if (family.isNotEmpty) ...[
+            const SectionLabel('Word family'),
+            Wrap(
+              spacing: 6,
+              children: [
+                for (final w in family)
+                  ActionChip(
+                    label: Text(w),
+                    backgroundColor: scheme.surfaceContainerHighest,
+                    onPressed: () => openWordByText(context, w),
+                  ),
+              ],
+            ),
           ],
         ],
       ),
@@ -713,31 +806,7 @@ class _SenseView extends StatelessWidget {
                     ),
                   ),
                 for (final ex in examples)
-                  Container(
-                    margin: const EdgeInsets.only(top: 12),
-                    padding: const EdgeInsets.only(left: 12),
-                    decoration: BoxDecoration(
-                      border: Border(
-                        left: BorderSide(color: scheme.primary, width: 2),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${(ex as List)[0]}',
-                          style: theme.textTheme.bodyLarge
-                              ?.copyWith(fontStyle: FontStyle.italic),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${ex[1]}',
-                          style: theme.textTheme.bodyMedium
-                              ?.copyWith(color: scheme.onSurfaceVariant),
-                        ),
-                      ],
-                    ),
-                  ),
+                  _ExampleBlock(de: '${(ex as List)[0]}', en: '${ex[1]}'),
                 if (syn.isNotEmpty)
                   _RelatedRow(
                     icon: Icons.drag_handle,
@@ -758,6 +827,76 @@ class _SenseView extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ExampleBlock extends StatelessWidget {
+  const _ExampleBlock({required this.de, required this.en});
+  final String de;
+  final String en;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.only(left: 12),
+      decoration: BoxDecoration(
+        border: Border(left: BorderSide(color: scheme.primary, width: 2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            de,
+            style: theme.textTheme.bodyLarge
+                ?.copyWith(fontStyle: FontStyle.italic),
+          ),
+          if (en.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              en,
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ExpressionTile extends StatelessWidget {
+  const _ExpressionTile({required this.phrase, required this.gloss});
+  final String phrase;
+  final String gloss;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: gloss.isEmpty ? null : () => openWordByText(context, phrase),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              phrase,
+              style: theme.textTheme.titleSmall
+                  ?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            if (gloss.isNotEmpty)
+              Text(
+                gloss,
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              ),
+          ],
+        ),
       ),
     );
   }

@@ -8,9 +8,13 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
+/// Version of the dictionary data. Raise it when a new data release is published
+/// (a GitHub Release named data-v<number>); installed apps then offer the update.
+const int kDataVersion = 2;
+
 /// Where the dictionary database is downloaded from (GitHub Release).
 const String kDataUrl =
-    'https://github.com/azadrifat/german-dictionary/releases/download/data-v1/dictionary.db.gz';
+    'https://github.com/azadrifat/german-dictionary/releases/download/data-v$kDataVersion/dictionary.db.gz';
 
 /// One row in a result list.
 class Hit {
@@ -141,6 +145,9 @@ class Store extends ChangeNotifier {
   Future<String> dbPath() async => p.join(await _dir(), 'dictionary.db');
   Future<bool> hasDb() async => File(await dbPath()).exists();
 
+  /// Which data version is installed (1 = the first release, before versions existed).
+  int get dataVersion => _prefs?.getInt('dataVersion') ?? 1;
+
   Future<void> openDb() async {
     _db = await openDatabase(await dbPath(), readOnly: true);
   }
@@ -188,6 +195,7 @@ class Store extends ChangeNotifier {
           .pipe(File(tmpPath).openWrite());
       await File(tmpPath).rename(outPath);
       await File(gzPath).delete();
+      await _prefs?.setInt('dataVersion', kDataVersion);
     } finally {
       client.close();
     }
