@@ -33,6 +33,18 @@ jobs:
 
       - run: flutter pub get
 
+      - name: Use the stable signing key (so updates install over the old app)
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            mkdir -p ~/.android
+            echo "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+            echo "Using the stable signing key"
+          else
+            echo "No signing key secret found - using a temporary key"
+          fi
+
       - run: flutter build apk --release
 
       - uses: actions/upload-artifact@v4
